@@ -1,0 +1,72 @@
+方法一 : 提高级别 (有隐患)
+    <intent-filter android:priority="1000">
+    
+    这样修改 home 和 recent 键都无作用了 1--1000 值均这样 new编译验证
+
+方法二 : 修改 frameworks\base\core\java\com\android\internal\app\ResolverActivity.java
+
+        类 ResolverActivity 的最后加上
+        
+        private static final String DEFAULT_HOME = "persist.sys.default.home";
+        private void setupDefaultLauncher() {
+            String first = "com.android.launcher3";
+            //try{
+            //    first =  SystemProperties.get(DEFAULT_HOME);
+            //}catch(Exception e){
+            //    Log.w(TAG,"exception error get DEFAULT_HOME");
+            //}
+            //判断默认home 是否设置过，如果获取的字符串为空代表，未设置，否则return不在进行设置
+            if (TextUtils.isEmpty(first)) {
+                return;
+            }
+            //使用包名获取所需设置的默认home app在ResolveListAdapter中的位置
+            int position = mAdapter.getDefaultHomePosition("com.android.launcher3");
+            //如果不存在则return
+            if (position == -1) {
+                if (DEBUG)
+                Log.w(TAG,"not find default Home");
+                return;
+            }
+            //设置默认home app后，则添加记录
+            //try{
+            //    SystemProperties.set(DEFAULT_HOME,DEFAULT_HOME);
+            //}catch(Exception e){
+            //    Log.w(TAG,"exception error set DEFAULT_HOME");
+            //}
+            //设置默认home app，并跳转
+            startSelected(position, true, true);
+            //结束此activity
+            dismiss();
+        }
+        
+        
+        类 ResolveListAdapter 的最后加上
+        public int getDefaultHomePosition(String packageName){
+            for (int i = 0; i < mDisplayList.size(); i++) {
+                DisplayResolveInfo info = mDisplayList.get(i);
+                Log.w(TAG,"getDefaultHomePosition " + info.mResolveInfo.activityInfo.packageName);
+                if (info.mResolveInfo.activityInfo.packageName.equals(packageName)) {
+                   Log.w(TAG,"getDefaultHomePosition i = " + i);
+                   return i;
+                }
+            }
+            return -1;
+        }
+
+        public int getDefaultHomePositionO(String packageName){
+            for (int i = 0; i < mOrigResolveList.size(); i++) {
+                ResolvedComponentInfo info = mOrigResolveList.get(i);
+                Log.w(TAG,"getDefaultHomePositionO " + info.name.getPackageName());
+                if (info.name.getPackageName().equals(packageName)) {
+                   Log.w(TAG,"getDefaultHomePositionO i = " + i);
+                   return i;
+                }
+            }
+            return -1;
+        }
+        
+        类 ResolverActivity 的 onCreate 方法中合适位置加上 
+        setupDefaultLauncher();
+        
+    
+    
