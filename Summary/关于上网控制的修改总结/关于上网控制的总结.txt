@@ -1,0 +1,207 @@
+一 上网白名单
+    1  相关java代码处加上
+    
+        new Thread(runnable_whitelist).start();
+        Runnable runnable_whitelist=new Runnable() {
+        
+        @Override
+        public void run() {
+            // TODO Auto-generated method stub
+            try {
+                netManager.enableUrl(whitelist);
+            } catch (RemoteException|IllegalStateException e) {
+                // ignored
+                Log.e("wzb","set ipt_whitelist err");
+            }
+        }
+        
+        
+
+    2  \frameworks\base\core\java\android\os\INetworkManagementService.aidl
+    
+        void enableUrl(String url);
+    
+    3  \frameworks\base\services\core\java\com\android\server\NetworkManagementService.java
+    
+        public void enableUrl(String url) {
+            try {
+                mConnector.execute("firewall", "ipt_whitelist",url); 
+            } catch (NativeDaemonConnectorException e) {
+                throw e.rethrowAsParcelableException();
+            }
+        }
+        
+    4  \system\netd\server\CommandListener.cpp
+
+        if(!strcmp(argv[1], "ipt_whitelist")) {
+            if (argc < 3) {
+                cli->sendMsg(ResponseCode::CommandSyntaxError,
+                        "Missing argument",
+                        false);
+                return 0;
+            }
+            const char* addr = argv[2];
+            ALOGD("wzb ipt_whitelist addr=%s\n",addr);
+            int res = gCtls->firewallCtrl.iptWhiteList(addr);
+            return sendGenericOkFail(cli, res);
+        }
+        
+    5  \system\netd\server\FirewallController.h
+
+        int iptWhiteList(const char *addr);
+    
+    6  \system\netd\server\FirewallController.cpp
+    
+        int FirewallController::iptWhiteList(const char *addr){
+            ALOGD("wzb FirewallController::iptWhiteList:%s\n",addr);
+            strcpy(temp_buff,addr);
+            ALOGD("wzb  temp=%s\n",temp_buff);
+            char *p;
+            const char *split = ";";
+            p=strtok(temp_buff, split);
+            int res=0;
+            res |= execIptables(V4V6, "-F", "OUTPUT", NULL);
+            res |= execIptables(V4V6, "-A", "OUTPUT","-p","tcp","-m","string","--string","Host:","--algo","bm","-j","MARK","--set-mark","1" ,NULL);
+            while(p!=NULL){
+                ALOGD("wzb whitelist=%s\n",p);
+                res |= execIptables(V4V6, "-A", "OUTPUT","-p","tcp","-m","mark","--mark","1","-m","string","--string",p,"--algo","bm","-j","ACCEPT" ,NULL);
+                p = strtok(NULL, split);
+            }
+            res |= execIptables(V4V6, "-A", "OUTPUT","-p","tcp","-m","mark","--mark","1","-j","REJECT", NULL);
+            return res;
+        }
+        
+        
+二  针对app_uid进行上网控制
+
+    1  相关java代码处加上
+        PackageManager packageManager = context.getPackageManager();
+        try {
+            disableuid = packageManager.getApplicationInfo("cn.wps.moffice_eng", PackageManager.GET_ACTIVITIES).uid;
+            Log.d("wzb","disableuid: disableuid = "+ disableuid);
+        } catch (NameNotFoundException e) {
+            e.printStackTrace();
+        }
+    
+        Log.e("wzb","runnable_disableuid start");
+        new Thread(runnable_disableuid).start();
+        
+        Runnable runnable_disableuid=new Runnable() {
+        
+            @Override
+            public void run() {
+                try {
+                    Log.e("wzb","set runnable_disableuid disableuid = " + disableuid);
+                    netManager.disableUid(disableuid);
+                } catch (RemoteException|IllegalStateException e) {
+                    Log.e("wzb","set runnable_disableuid err");
+                }
+            }
+        };
+        
+        这样修改后 刷机后第一次开机还是不行的 但是重启后就有效果了 估计该操作是在连接网络前......巴拉巴拉
+        
+        所以就是在网络状态改变时在进行一次该操作
+        
+        if(action.equals("android.net.conn.CONNECTIVITY_CHANGE")
+                || action.equals("android.net.wifi.WIFI_STATE_CHANGED")
+                || action.equals("android.net.wifi.STATE_CHANGE")) {
+            Log.e("wzb","runnable_disableuid start");
+            new Thread(runnable_disableuid).start();
+        }
+        
+        上面改了后 还是刷机后第一次开机还是不行的 但是重启后就有效果了 这是什么原因呢 .......
+
+
+        编译了一个eng版本 开机log看 没用跑 android.net.conn.CONNECTIVITY_CHANGE 
+        百度和想法 似乎是 该广播没用捕获到 那就是 静态注册捕获不到
+        所以用 动态注册 问题解决
+        
+        IntentFilter disableUidFilter = new IntentFilter();
+        disableUidFilter.addAction("android.intent.action.BOOT_COMPLETED");
+        disableUidFilter.addAction("android.net.conn.CONNECTIVITY_CHANGE");
+        context.registerReceiver(mDisableUidState, disableUidFilter);
+        
+        private BroadcastReceiver mDisableUidState = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            PackageManager packageManager = context.getPackageManager();
+            try {
+                disableuid = packageManager.getApplicationInfo("cn.wps.moffice_eng", PackageManager.GET_ACTIVITIES).uid;
+                Log.d("wzb","mDisableUidState: disableuid = "+ disableuid);
+            } catch (NameNotFoundException e) {
+                e.printStackTrace();
+            }
+            Log.v(TAG, "mDisableUidState : " + intent);
+            if ("android.net.conn.CONNECTIVITY_CHANGE".equals(intent.getAction())
+                    || "android.intent.action.BOOT_COMPLETED".equals(intent.getAction())) {
+                new Thread(runnable_disableuid).start();
+            }
+        }
+    };
+    
+    Runnable runnable_disableuid = new Runnable() {
+        
+        @Override
+        public void run() {
+            // TODO Auto-generated method stub
+            try {
+                Log.e("wzb","set runnable_disableuid disableuid = " + disableuid);
+                netManager.disableUid(disableuid);
+            } catch (RemoteException|IllegalStateException e) {
+                // ignored
+                Log.e("wzb","set runnable_disableuid err");
+            }
+        }
+    };
+    
+    
+    mContext.unregisterReceiver(mDisableUidState);
+
+
+    2  \frameworks\base\core\java\android\os\INetworkManagementService.aidl
+    
+        void disableUid(int uid);
+    
+    3  \frameworks\base\services\core\java\com\android\server\NetworkManagementService.java
+    
+        public void disableUid(int uid) {
+            try {
+                mConnector.execute("firewall", "ipt_disableuid", uid);
+            } catch (NativeDaemonConnectorException e) {
+                throw e.rethrowAsParcelableException();
+            }
+        }
+        
+    4  \system\netd\server\CommandListener.cpp
+
+        if(!strcmp(argv[1], "ipt_disableuid")) {
+            if (argc < 3) {
+                cli->sendMsg(ResponseCode::CommandSyntaxError,
+                        "Missing argument",
+                        false);
+                return 0;
+            }
+            int uid = atoi(argv[2]);
+            ALOGD("wzb ipt_disableuid uid=%d\n",uid);
+            int res = gCtls->firewallCtrl.disableUid(uid);
+            return sendGenericOkFail(cli, res);
+        }
+        
+    5  \system\netd\server\FirewallController.h
+
+        int disableUid(const int);
+    
+    6  \system\netd\server\FirewallController.cpp
+    
+        int FirewallController::disableUid(int uid) {
+            char uidStr[16];
+            ALOGD("wzb FirewallController::disableUid:%d\n",uid);
+            sprintf(uidStr, "%d", uid);
+            ALOGD("wzb FirewallController::disableuidStr:%s\n",uidStr);
+
+            int res = 0;
+            res |= execIptables(V4V6, "-F", "OUTPUT", NULL);
+            res |= execIptables(V4V6, "-A", "OUTPUT","-m","owner","--uid-owner" ,uidStr,"-j","REJECT", NULL);
+            return res;
+        }
