@@ -10,6 +10,7 @@
         mContext.sendBroadcast(intent);
     }
     
+    这样隐藏不好
     增加 hideNavBar() 方法:
     private void hideNavBar() {
         Log.v("hide_nav", "hideNavBar");
