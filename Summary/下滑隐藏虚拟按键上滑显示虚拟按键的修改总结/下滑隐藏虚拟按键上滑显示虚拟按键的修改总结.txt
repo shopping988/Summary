@@ -1,0 +1,162 @@
+采用 SystemGesturesPointerEventListener 发广播来实现
+
+一 frameworks\base\services\core\java\com\android\server\policy\PhoneWindowManager.java
+
+    增加 showNavBar() 方法:
+    private void showNavBar() {
+        Log.v("hide_nav", "showNavBar");
+        Intent intent = new Intent("com.shopping.nav_bar_control");
+        intent.putExtra("command", "show");
+        mContext.sendBroadcast(intent);
+    }
+    
+    增加 hideNavBar() 方法:
+    private void hideNavBar() {
+        Log.v("hide_nav", "hideNavBar");
+        Intent intent = new Intent("com.shopping.nav_bar_control");
+        intent.putExtra("command", "hide");
+        mContext.sendBroadcast(intent);
+    }
+    
+    init() 方法中的 mSystemGestures = new SystemGesturesPointerEventListener 下
+    onSwipeFromTop() 增加  hideNavBar()
+    onSwipeFromBottom() onSwipeFromRight() 增加  showNavBar()
+    
+二 frameworks\base\packages\SystemUI\src\com\android\systemui\statusbar\phone\PhoneStatusBar.java
+
+    增加 showNavBar() 方法:
+    private void showNavBar() {
+        mNavigationBarView.setVisibility(View.VISIBLE);
+        //mNavBarGoneReason = null;
+        //updateNavigationBarView(null);
+    }
+    增加 hideNavBar() 方法:
+    private void hideNavBar() {
+        mNavigationBarView.setVisibility(View.GONE);
+        //mNavBarGoneReason = null;
+        //updateNavigationBarView(null);
+    }
+
+    makeStatusBarView() 方法对应位置增加
+    filter.addAction("com.shopping.nav_bar_control");
+    
+    mBroadcastReceiver = new BroadcastReceiver() 中接收并处理相关广播
+    
+            else if ("com.shopping.nav_bar_control".equals(action)) {
+                Bundle bundle = intent.getExtras();
+                if(bundle != null) {
+                    String command = bundle.getString("command", "").trim().toLowerCase();
+                    Log.v("hide_nav","command = " + command);
+                    if("show".equals(command)) {
+                        showNavBar();
+                    } esle if ("hide".equals(command)) {
+                        hideNavBar();
+                    }
+                }
+            }
+            
+            
+三 实际上好多厂商是增加了一个隐藏虚拟按键的按键(原因是???)
+    文件一
+    frameworks\base\packages\SystemUI\res\layout\ 这里增加一个 hide_nav.xml 
+    
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2016 The Android Open Source Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+-->
+
+<com.android.systemui.statusbar.policy.KeyButtonView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:systemui="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/hide_nav"
+    android:layout_width="@dimen/navigation_key_width"
+    android:layout_height="match_parent"
+    android:layout_weight="0"
+    android:src="@drawable/ic_hide_nav"
+    android:scaleType="center"
+    android:contentDescription="@string/accessibility_hide_nav"
+    android:paddingStart="@dimen/navigation_key_padding"
+    android:paddingEnd="@dimen/navigation_key_padding"
+    />
+    文件二
+    frameworks\base\packages\SystemUI\src\com\android\systemui\statusbar\phone\NavigationBarInflaterView.java
+    增加 
+    
+    public static final String HIDE_NAV = "hide_nav";
+    
+    方法 inflateButton 中增加
+        if (HIDE_NAV.equals(button)) {
+            v = inflater.inflate(R.layout.hide_nav, parent, false);
+            if (landscape && isSw600Dp()) {
+                setupLandButton(v);
+            }
+        } else
+        
+    文件三
+    frameworks\base\packages\SystemUI\src\com\android\systemui\statusbar\phone\NavigationBarView.java
+    NavigationBarView() 方法中增加
+    mButtonDisatchers.put(R.id.hide_nav, new ButtonDispatcher(R.id.hide_nav));
+    
+    增加方法
+    public ButtonDispatcher getHideNavButton() {
+        return mButtonDisatchers.get(R.id.hide_nav);
+    }
+    
+    文件四
+    frameworks\base\packages\SystemUI\src\com\android\systemui\statusbar\phone\PhoneStatusBar.java
+    增加方法
+    private View.OnClickListener mHideNavClickListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            mNavigationBarView.setVisibility(View.GONE);
+            //mWindowManager.removeViewImmediate(mNavigationBarView);
+            //mNavigationBarView = null;
+        }
+    };
+    
+    prepareNavigationBarView()方法中增加
+        ButtonDispatcher hideNavButton = mNavigationBarView.getHideNavButton();
+        hideNavButton.setOnClickListener(mHideNavClickListener);
+        
+    文件五
+    frameworks\base\packages\SystemUI\src\com\android\systemui\tuner\NavBarTuner.java
+    
+    import static com.android.systemui.statusbar.phone.NavigationBarInflaterView.HIDE_NAV;
+    
+    getLabel()方法中增加
+        if (button.startsWith(HIDE_NAV)) {
+            return context.getString(R.string.accessibility_hide_nav);
+        } else
+    
+    showAddDialog()方法对应位置增加 HIDE_NAV
+    
+    
+    文件六
+    frameworks\base\packages\SystemUI\res\values\strings.xml
+    增加
+    <string name="accessibility_hide_nav">Hide_nav</string>
+    
+    文件七 
+    这里看增加的按键布局与 back home recent是否要一致对应做修改
+    frameworks\base\packages\SystemUI\res\values-sw600dp\config.xml
+    <string name="config_navBarLayout" translatable="false">space;back,home,recent;hide_nav,menu_ime</string>
+    
+    frameworks\base\packages\SystemUI\res\values\config.xml
+    <string name="config_navBarLayout" translatable="false">back;home;recent,hide_nav;menu_ime</string>
+    
+    
+    文件八 
+    frameworks\base\packages\SystemUI\res\drawable-hdpi\ic_hide_nav.png
+
+    
