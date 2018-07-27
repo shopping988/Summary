@@ -1946,7 +1946,7 @@ public class ResolverActivity extends Activity {
         //    Log.w(TAG,"exception error set DEFAULT_HOME");
         //}
         //设置默认home app，并跳转
-        startSelected(position, true, true);
+        startSelected(position, true, false);
         //结束此activity
         dismiss();
     }
